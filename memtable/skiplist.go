@@ -92,7 +92,7 @@ func (sl *SkipList) Put(key, value []byte) {
 	sl.Size++
 }
 
-func (sl *SkipList) Get(key, value []byte) ([]byte, bool) {
+func (sl *SkipList) Get(key []byte) ([]byte, bool) {
 	current := sl.Head
 
 	// Travel down from the highest level
