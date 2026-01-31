@@ -92,3 +92,21 @@ func (sl *SkipList) Put(key, value []byte) {
 	sl.Size++
 }
 
+func (sl *SkipList) Get(key, value []byte) ([]byte, bool) {
+	current := sl.Head
+
+	// Travel down from the highest level
+	for i := sl.Level - 1; i >= 0; i-- {
+		for current.Next[i] != nil && bytes.Compare(current.Next[i].Key, key) < 0 {
+			current = current.Next[i]
+		}
+	}
+
+	current = current.Next[0]
+
+	if current != nil && bytes.Equal(current.Key, key) {
+		return current.Value, true
+	}
+
+	return nil, false
+}
