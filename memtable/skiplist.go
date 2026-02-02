@@ -64,7 +64,7 @@ func (sl *SkipList) Put(key, value []byte) {
 
 	// Move to the next node at level 0 to check if key exists
 	current = current.Next[0]
-	if current != nil && string(current.Key) == string(key) {
+	if current != nil && bytes.Equal(current.Key, key) {
 		current.Value = value
 		return
 	}
