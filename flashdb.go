@@ -57,14 +57,15 @@ func Open(dataDir string) (*FlashDB, error) {
 }
 
 func (db *FlashDB) Put(key, value []byte) error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
 
 	if err := db.wal.WriteEntry(key, value); err != nil {
 		return err
 	}
 
+	db.mu.Lock()
 	db.activeMemtable.Put(key, value)
+	db.mu.Unlock()
+
 	return nil
 }
 
@@ -97,7 +98,11 @@ func (db *FlashDB) Close() error {
 
 func (db *FlashDB) Flush() error {
 	db.mu.Lock()
-	defer db.mu.Unlock()
+	immutableMemtable := db.activeMemtable
+	db.activeMemtable = memtable.NewSkipList()
+
+	oldWAL := db.wal
+	db.mu.Unlock()
 
 	sstName := fmt.Sprintf("data_%d.sst", len(db.sstReaders)+1)
 	sstPath := filepath.Join(db.dataDir, sstName)
@@ -106,7 +111,7 @@ func (db *FlashDB) Flush() error {
 	if err != nil {
 		return err
 	}
-	if err := builder.Flush(db.activeMemtable); err != nil {
+	if err := builder.Flush(immutableMemtable); err != nil {
 		return err
 	}
 
@@ -114,17 +119,18 @@ func (db *FlashDB) Flush() error {
 	if err != nil {
 		return err
 	}
+
+	db.mu.Lock()
 	db.sstReaders = append(db.sstReaders, reader)
 
-	db.wal.Close()
+	oldWAL.Close()
 	os.Remove(filepath.Join(db.dataDir, "wal.log"))
 	newWal, err := wal.NewWAL(filepath.Join(db.dataDir, "wal.log"))
 	if err != nil {
 		return err
 	}
 	db.wal = newWal
-
-	db.activeMemtable = memtable.NewSkipList()
+	db.mu.Unlock()
 
 	return nil
 }
