@@ -33,12 +33,19 @@ func Open(dataDir string) (*FlashDB, error) {
 
 	mem := memtable.NewSkipList()
 
-	restored, _ := walLog.Recover()
+	restored, err := walLog.Recover()
+	if err != nil {
+		return nil, fmt.Errorf("WAL recovery failed: %w", err)
+	}
+
 	for k, v := range restored {
 		mem.Put([]byte(k), v)
 	}
 
-	files, _ := os.ReadDir(dataDir)
+	files, err := os.ReadDir(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read data directory: %w", err)
+	}
 	var readers []*sstable.Reader
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), ".sst") {
