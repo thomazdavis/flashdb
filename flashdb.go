@@ -12,12 +12,15 @@ import (
 	"github.com/thomazdavis/flashdb/wal"
 )
 
+const DefaultMemtableThreshold = 4 * 1024 * 1024 // 4MB
+
 type FlashDB struct {
 	mu             sync.RWMutex
 	activeMemtable *memtable.SkipList
 	wal            *wal.WAL
 	sstReaders     []*sstable.Reader
 	dataDir        string
+	isFlushing     bool
 }
 
 func Open(dataDir string) (*FlashDB, error) {
@@ -25,13 +28,27 @@ func Open(dataDir string) (*FlashDB, error) {
 		return nil, err
 	}
 
+	mem := memtable.NewSkipList()
+
+	// Crash protection
+	flushingPath := filepath.Join(dataDir, "wal.log.flushing")
+	if _, err := os.Stat(flushingPath); err == nil {
+		// Found an abandoned log, recovering it into the memory
+		tempWAL, err := wal.NewWAL(flushingPath)
+		if err == nil {
+			restored, _ := tempWAL.Recover()
+			for k, v := range restored {
+				mem.Put([]byte(k), v)
+			}
+			tempWAL.Close()
+		}
+	}
+
 	walPath := filepath.Join(dataDir, "wal.log")
 	walLog, err := wal.NewWAL(walPath)
 	if err != nil {
 		return nil, err
 	}
-
-	mem := memtable.NewSkipList()
 
 	restored, err := walLog.Recover()
 	if err != nil {
@@ -71,7 +88,13 @@ func (db *FlashDB) Put(key, value []byte) error {
 
 	db.mu.Lock()
 	db.activeMemtable.Put(key, value)
+
+	needsFlush := db.activeMemtable.SizeBytes >= DefaultMemtableThreshold
 	db.mu.Unlock()
+
+	if needsFlush {
+		go db.Flush()
+	}
 
 	return nil
 }
@@ -105,39 +128,74 @@ func (db *FlashDB) Close() error {
 
 func (db *FlashDB) Flush() error {
 	db.mu.Lock()
+
+	// Concurrency Check
+	if db.isFlushing || db.activeMemtable.Size == 0 {
+		db.mu.Unlock()
+		return nil
+	}
+	db.isFlushing = true
+
+	// Rotate Memtable
 	immutableMemtable := db.activeMemtable
 	db.activeMemtable = memtable.NewSkipList()
 
+	// Rotate WAL
 	oldWAL := db.wal
+	if err := oldWAL.Close(); err != nil {
+		db.isFlushing = false
+		db.mu.Unlock()
+		return err
+	}
+
+	flushingWALPath := filepath.Join(db.dataDir, "wal.log.flushing")
+	if err := os.Rename(filepath.Join(db.dataDir, "wal.log"), flushingWALPath); err != nil {
+		db.isFlushing = false
+		db.mu.Unlock()
+		return err
+	}
+
+	newWal, err := wal.NewWAL(filepath.Join(db.dataDir, "wal.log"))
+	if err != nil {
+		db.isFlushing = false
+		db.mu.Unlock()
+		return err
+	}
+	db.wal = newWal
+
+	sstID := len(db.sstReaders) + 1
 	db.mu.Unlock()
 
-	sstName := fmt.Sprintf("data_%d.sst", len(db.sstReaders)+1)
+	sstName := fmt.Sprintf("data_%d.sst", sstID)
 	sstPath := filepath.Join(db.dataDir, sstName)
+
+	handleError := func(err error) error {
+		db.mu.Lock()
+		db.isFlushing = false
+		db.mu.Unlock()
+		return err
+	}
 
 	builder, err := sstable.NewBuilder(sstPath)
 	if err != nil {
-		return err
+		return handleError(err)
 	}
+
 	if err := builder.Flush(immutableMemtable); err != nil {
-		return err
+		return handleError(err)
 	}
 
 	reader, err := sstable.NewReader(sstPath)
 	if err != nil {
-		return err
+		return handleError(err)
 	}
 
 	db.mu.Lock()
 	db.sstReaders = append(db.sstReaders, reader)
-
-	oldWAL.Close()
-	os.Remove(filepath.Join(db.dataDir, "wal.log"))
-	newWal, err := wal.NewWAL(filepath.Join(db.dataDir, "wal.log"))
-	if err != nil {
-		return err
-	}
-	db.wal = newWal
+	db.isFlushing = false
 	db.mu.Unlock()
+
+	os.Remove(flushingWALPath)
 
 	return nil
 }

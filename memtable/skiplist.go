@@ -20,11 +20,12 @@ type Node struct {
 }
 
 type SkipList struct {
-	Head  *Node
-	Level int // Current max level in the list
-	Size  int
-	rand  *rand.Rand // For randomness
-	mu    sync.RWMutex
+	Head      *Node
+	Level     int // Current max level in the list
+	Size      int
+	SizeBytes int64
+	rand      *rand.Rand // For randomness
+	mu        sync.RWMutex
 }
 
 type Iterator struct {
@@ -69,6 +70,7 @@ func (sl *SkipList) Put(key, value []byte) {
 	// Move to the next node at level 0 to check if key exists
 	current = current.Next[0]
 	if current != nil && bytes.Equal(current.Key, key) {
+		sl.SizeBytes += int64(len(value) - len(current.Value))
 		current.Value = value
 		return
 	}
@@ -98,6 +100,7 @@ func (sl *SkipList) Put(key, value []byte) {
 		update[i].Next[i] = newNode
 	}
 
+	sl.SizeBytes += int64(len(key) + len(value))
 	sl.Size++
 }
 
