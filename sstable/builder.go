@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/thomazdavis/flashdb/memtable"
+	"github.com/thomazdavis/stratago/memtable"
 )
 
 type Builder struct {

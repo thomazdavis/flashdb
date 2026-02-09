@@ -1,4 +1,4 @@
-package flashdb
+package stratago
 
 import (
 	"fmt"
@@ -7,14 +7,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/thomazdavis/flashdb/memtable"
-	"github.com/thomazdavis/flashdb/sstable"
-	"github.com/thomazdavis/flashdb/wal"
+	"github.com/thomazdavis/stratago/memtable"
+	"github.com/thomazdavis/stratago/sstable"
+	"github.com/thomazdavis/stratago/wal"
 )
 
 const DefaultMemtableThreshold = 4 * 1024 * 1024 // 4MB
 
-type FlashDB struct {
+type StrataGo struct {
 	mu                sync.RWMutex
 	activeMemtable    *memtable.SkipList
 	immutableMemtable *memtable.SkipList
@@ -24,7 +24,7 @@ type FlashDB struct {
 	isFlushing        bool
 }
 
-func Open(dataDir string) (*FlashDB, error) {
+func Open(dataDir string) (*StrataGo, error) {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func Open(dataDir string) (*FlashDB, error) {
 			}
 		}
 	}
-	return &FlashDB{
+	return &StrataGo{
 		activeMemtable: mem,
 		wal:            walLog,
 		sstReaders:     readers,
@@ -82,7 +82,7 @@ func Open(dataDir string) (*FlashDB, error) {
 	}, nil
 }
 
-func (db *FlashDB) Put(key, value []byte) error {
+func (db *StrataGo) Put(key, value []byte) error {
 
 	if err := db.wal.WriteEntry(key, value); err != nil {
 		return err
@@ -101,7 +101,7 @@ func (db *FlashDB) Put(key, value []byte) error {
 	return nil
 }
 
-func (db *FlashDB) Get(key []byte) ([]byte, bool) {
+func (db *StrataGo) Get(key []byte) ([]byte, bool) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -123,7 +123,7 @@ func (db *FlashDB) Get(key []byte) ([]byte, bool) {
 	return nil, false
 }
 
-func (db *FlashDB) Close() error {
+func (db *StrataGo) Close() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -134,7 +134,7 @@ func (db *FlashDB) Close() error {
 	return nil
 }
 
-func (db *FlashDB) Flush() error {
+func (db *StrataGo) Flush() error {
 	db.mu.Lock()
 
 	// Concurrency Check

@@ -1,4 +1,4 @@
-module github.com/thomazdavis/flashdb
+module github.com/thomazdavis/stratago
 
 go 1.25.5
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/thomazdavis/flashdb/memtable"
+	"github.com/thomazdavis/stratago/memtable"
 )
 
 func TestBuilder_Flush(t *testing.T) {

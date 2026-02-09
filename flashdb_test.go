@@ -1,4 +1,4 @@
-package flashdb
+package stratago
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestFlashDB_Integration(t *testing.T) {
+func TestStrataGo_Integration(t *testing.T) {
 	dataDir := "test_data"
 	defer os.RemoveAll(dataDir)
 
@@ -45,7 +45,7 @@ func TestFlashDB_Integration(t *testing.T) {
 	assert.Equal(t, []byte("value1"), val)
 }
 
-func TestFlashDB_ConcurrentAccess(t *testing.T) {
+func TestStrataGo_ConcurrentAccess(t *testing.T) {
 	dataDir := "concurrent_test"
 	defer os.RemoveAll(dataDir)
 
@@ -77,7 +77,7 @@ func TestFlashDB_ConcurrentAccess(t *testing.T) {
 	assert.True(t, found)
 }
 
-func TestFlashDB_AutoFlush(t *testing.T) {
+func TestStrataGo_AutoFlush(t *testing.T) {
 	dataDir := "test_autoflush"
 	defer os.RemoveAll(dataDir)
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/thomazdavis/flashdb/memtable"
+	"github.com/thomazdavis/stratago/memtable"
 )
 
 func TestReader_Get(t *testing.T) {

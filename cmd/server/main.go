@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/thomazdavis/flashdb"
+	"github.com/thomazdavis/stratago"
 )
 
 func main() {
-	db, err := flashdb.Open("./data")
+	db, err := stratago.Open("./data")
 	if err != nil {
 		fmt.Printf("Error opening DB: %v\n", err)
 		return
@@ -18,11 +18,11 @@ func main() {
 	defer db.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Println("FlashDB Shell")
+	fmt.Println("StrataGo Shell")
 	fmt.Println("Commands: SET <key> <val> | GET <key> | FLUSH | EXIT")
 
 	for {
-		fmt.Print("flashdb> ")
+		fmt.Print("stratago> ")
 		if !scanner.Scan() {
 			break
 		}
