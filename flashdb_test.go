@@ -1,8 +1,10 @@
 package flashdb
 
 import (
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -73,4 +75,32 @@ func TestFlashDB_ConcurrentAccess(t *testing.T) {
 
 	_, found := db.Get([]byte("key"))
 	assert.True(t, found)
+}
+
+func TestFlashDB_AutoFlush(t *testing.T) {
+	dataDir := "test_autoflush"
+	defer os.RemoveAll(dataDir)
+
+	db, _ := Open(dataDir)
+	defer db.Close()
+
+	targetKey := []byte("target_key")
+	value := make([]byte, 1024) // 1 KB
+
+	db.Put(targetKey, value)
+
+	for i := 0; i < 5000; i++ {
+		loopKey := []byte(fmt.Sprintf("key-%d", i))
+		db.Put(loopKey, value)
+	}
+
+	assert.Eventually(t, func() bool {
+		db.mu.RLock()
+		defer db.mu.RUnlock()
+		return len(db.sstReaders) > 0
+	}, 10*time.Second, 100*time.Millisecond)
+
+	val, found := db.Get(targetKey)
+	assert.True(t, found)
+	assert.Equal(t, value, val)
 }

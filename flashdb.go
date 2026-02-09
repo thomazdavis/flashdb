@@ -15,12 +15,13 @@ import (
 const DefaultMemtableThreshold = 4 * 1024 * 1024 // 4MB
 
 type FlashDB struct {
-	mu             sync.RWMutex
-	activeMemtable *memtable.SkipList
-	wal            *wal.WAL
-	sstReaders     []*sstable.Reader
-	dataDir        string
-	isFlushing     bool
+	mu                sync.RWMutex
+	activeMemtable    *memtable.SkipList
+	immutableMemtable *memtable.SkipList
+	wal               *wal.WAL
+	sstReaders        []*sstable.Reader
+	dataDir           string
+	isFlushing        bool
 }
 
 func Open(dataDir string) (*FlashDB, error) {
@@ -41,6 +42,7 @@ func Open(dataDir string) (*FlashDB, error) {
 				mem.Put([]byte(k), v)
 			}
 			tempWAL.Close()
+			os.Remove(flushingPath)
 		}
 	}
 
@@ -90,11 +92,11 @@ func (db *FlashDB) Put(key, value []byte) error {
 	db.activeMemtable.Put(key, value)
 
 	needsFlush := db.activeMemtable.SizeBytes >= DefaultMemtableThreshold
-	db.mu.Unlock()
 
-	if needsFlush {
+	if needsFlush && !db.isFlushing {
 		go db.Flush()
 	}
+	db.mu.Unlock()
 
 	return nil
 }
@@ -105,6 +107,12 @@ func (db *FlashDB) Get(key []byte) ([]byte, bool) {
 
 	if val, found := db.activeMemtable.Get(key); found {
 		return val, true
+	}
+
+	if db.immutableMemtable != nil {
+		if val, found := db.immutableMemtable.Get(key); found {
+			return val, true
+		}
 	}
 
 	for i := len(db.sstReaders) - 1; i >= 0; i-- {
@@ -137,7 +145,7 @@ func (db *FlashDB) Flush() error {
 	db.isFlushing = true
 
 	// Rotate Memtable
-	immutableMemtable := db.activeMemtable
+	db.immutableMemtable = db.activeMemtable
 	db.activeMemtable = memtable.NewSkipList()
 
 	// Rotate WAL
@@ -181,7 +189,7 @@ func (db *FlashDB) Flush() error {
 		return handleError(err)
 	}
 
-	if err := builder.Flush(immutableMemtable); err != nil {
+	if err := builder.Flush(db.immutableMemtable); err != nil {
 		return handleError(err)
 	}
 
@@ -192,6 +200,7 @@ func (db *FlashDB) Flush() error {
 
 	db.mu.Lock()
 	db.sstReaders = append(db.sstReaders, reader)
+	db.immutableMemtable = nil
 	db.isFlushing = false
 	db.mu.Unlock()
 
