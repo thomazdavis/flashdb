@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/thomazdavis/stratago/memtable"
 	"github.com/thomazdavis/stratago/sstable"
@@ -40,11 +41,10 @@ func (db *StrataGo) Flush() error {
 		return err
 	}
 	db.wal = newWal
-
-	sstID := len(db.sstReaders) + 1
 	db.mu.Unlock()
 
-	sstPath := filepath.Join(db.dataDir, fmt.Sprintf("data_%d.sst", sstID))
+	sstName := fmt.Sprintf("data_%d.sst", time.Now().UnixNano())
+	sstPath := filepath.Join(db.dataDir, sstName)
 
 	builder, err := sstable.NewBuilder(sstPath)
 	if err != nil {

@@ -30,6 +30,11 @@ func Open(dataDir string) (*StrataGo, error) {
 	}
 
 	mem := memtable.NewSkipList()
+	walPath := filepath.Join(dataDir, "wal.log")
+	walLog, err := wal.NewWAL(walPath)
+	if err != nil {
+		return nil, err
+	}
 
 	// Crash protection
 	flushingPath := filepath.Join(dataDir, "wal.log.flushing")
@@ -40,16 +45,14 @@ func Open(dataDir string) (*StrataGo, error) {
 			restored, _ := tempWAL.Recover()
 			for k, v := range restored {
 				mem.Put([]byte(k), v)
+
+				if err := walLog.WriteEntry([]byte(k), v); err != nil {
+					return nil, fmt.Errorf("failed to persist recovered data: %w", err)
+				}
 			}
 			tempWAL.Close()
 			os.Remove(flushingPath)
 		}
-	}
-
-	walPath := filepath.Join(dataDir, "wal.log")
-	walLog, err := wal.NewWAL(walPath)
-	if err != nil {
-		return nil, err
 	}
 
 	restored, err := walLog.Recover()
@@ -160,5 +163,48 @@ func (db *StrataGo) Close() error {
 	for _, r := range db.sstReaders {
 		r.Close()
 	}
+	return nil
+}
+
+// Purge closes the database, deletes all data files, and restarts the engine.
+func (db *StrataGo) Purge() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	// Close the WAL to release the file lock
+	if err := db.wal.Close(); err != nil {
+		return err
+	}
+
+	// Close all SSTable readers
+	for _, reader := range db.sstReaders {
+		if err := reader.Close(); err != nil {
+			return err
+		}
+	}
+
+	// Wipe the Data Directory
+	if err := os.RemoveAll(db.dataDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(db.dataDir, 0755); err != nil {
+		return err
+	}
+
+	// Re-initialize Memory and WAL
+	db.activeMemtable = memtable.NewSkipList()
+	db.immutableMemtable = nil
+	db.sstReaders = nil // Reset readers slice
+
+	walPath := filepath.Join(db.dataDir, "wal.log")
+	newWal, err := wal.NewWAL(walPath)
+	if err != nil {
+		return err
+	}
+	db.wal = newWal
+
+	// Reset flush state
+	db.isFlushing = false
+
 	return nil
 }

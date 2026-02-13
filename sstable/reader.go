@@ -5,10 +5,12 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
+	"sync"
 )
 
 type Reader struct {
 	file *os.File
+	mu   sync.Mutex
 }
 
 // Opens an existing SSTable for reading
@@ -74,29 +76,38 @@ func (r *Reader) Path() string {
 }
 
 // ReadAll retrieves all key-value pairs from the SSTable file.
-func (r *Reader) ReadAll() map[string][]byte {
-	r.file.Seek(0, 0)
+func (r *Reader) ReadAll() (map[string][]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, err := r.file.Seek(0, 0); err != nil {
+		return nil, err
+	}
+
 	data := make(map[string][]byte)
 	for {
 		var keySize, valSize uint32
 		if err := binary.Read(r.file, binary.LittleEndian, &keySize); err != nil {
-			break
+			if err == io.EOF {
+				break
+			}
+			return nil, err
 		}
 		if err := binary.Read(r.file, binary.LittleEndian, &valSize); err != nil {
-			break
+			return nil, err
 		}
 
 		key := make([]byte, keySize)
 		if _, err := io.ReadFull(r.file, key); err != nil {
-			break
+			return nil, err
 		}
 
 		val := make([]byte, valSize)
 		if _, err := io.ReadFull(r.file, val); err != nil {
-			break
+			return nil, err
 		}
 
 		data[string(key)] = val
 	}
-	return data
+	return data, nil
 }

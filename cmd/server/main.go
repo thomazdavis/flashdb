@@ -109,6 +109,21 @@ func main() {
 				}
 			}
 
+		case "PURGE":
+			fmt.Print("Are you sure? This will delete ALL data. (y/n): ")
+			if !scanner.Scan() {
+				break
+			}
+			if strings.ToLower(scanner.Text()) == "y" {
+				if err := db.Purge(); err != nil {
+					fmt.Printf("Error purging DB: %v\n", err)
+				} else {
+					fmt.Println("Database purged. All data removed.")
+				}
+			} else {
+				fmt.Println("Cancelled.")
+			}
+
 		case "EXIT":
 			return
 

@@ -16,7 +16,7 @@ type WAL struct {
 }
 
 func NewWAL(path string) (*WAL, error) {
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return nil, err
 	}
@@ -83,17 +83,12 @@ func (w *WAL) Recover() (map[string][]byte, error) {
 	header := make([]byte, 20) // SeqNum(8) + KeySize(4) + ValSize(4) + Checksum(4)
 	data := make(map[string][]byte)
 
-	file, err := os.Open(w.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return data, nil
-		}
+	if _, err := w.file.Seek(0, 0); err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
 	for {
-		if _, err := io.ReadFull(file, header); err != nil {
+		if _, err := io.ReadFull(w.file, header); err != nil {
 			break // EOF or partial header
 		}
 
@@ -103,12 +98,12 @@ func (w *WAL) Recover() (map[string][]byte, error) {
 		expectedChecksum := binary.LittleEndian.Uint32(header[16:20])
 
 		key := make([]byte, keySize)
-		if _, err := io.ReadFull(file, key); err != nil {
+		if _, err := io.ReadFull(w.file, key); err != nil {
 			break
 		}
 
 		value := make([]byte, valSize)
-		if _, err := io.ReadFull(file, value); err != nil {
+		if _, err := io.ReadFull(w.file, value); err != nil {
 			break
 		}
 

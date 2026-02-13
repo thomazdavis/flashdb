@@ -38,7 +38,7 @@ func (db *StrataGo) GetSSTableContents() map[string]map[string][]byte {
 	defer db.mu.RUnlock()
 	res := make(map[string]map[string][]byte)
 	for _, r := range db.sstReaders {
-		res[r.Path()] = r.ReadAll()
+		res[r.Path()], _ = r.ReadAll()
 	}
 	return res
 }
