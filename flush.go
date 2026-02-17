@@ -14,11 +14,10 @@ import (
 func (db *StrataGo) Flush() error {
 	db.mu.Lock()
 
-	if db.isFlushing || db.activeMemtable.Size == 0 {
+	if db.activeMemtable.Size == 0 {
 		db.mu.Unlock()
 		return nil
 	}
-	db.isFlushing = true
 
 	// Rotate Memtable and WAL
 	db.immutableMemtable = db.activeMemtable
@@ -26,7 +25,6 @@ func (db *StrataGo) Flush() error {
 
 	newWal, err := wal.NewWAL(filepath.Join(db.dataDir, "wal.log"))
 	if err != nil {
-		db.isFlushing = false
 		db.mu.Unlock()
 		return err
 	}
@@ -34,7 +32,6 @@ func (db *StrataGo) Flush() error {
 	oldWAL := db.wal
 	if err := oldWAL.Close(); err != nil {
 		newWal.Close()
-		db.isFlushing = false
 		db.mu.Unlock()
 		return err
 	}
@@ -65,7 +62,6 @@ func (db *StrataGo) Flush() error {
 	db.mu.Lock()
 	db.sstReaders = append(db.sstReaders, reader)
 	db.immutableMemtable = nil
-	db.isFlushing = false
 	db.mu.Unlock()
 
 	// Verifying SSTable before deleting WAL
@@ -83,7 +79,6 @@ func (db *StrataGo) Flush() error {
 
 func (db *StrataGo) handleFlushError(err error) error {
 	db.mu.Lock()
-	db.isFlushing = false
 	db.mu.Unlock()
 	return err
 }

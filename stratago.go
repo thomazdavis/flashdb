@@ -22,7 +22,9 @@ type StrataGo struct {
 	wal               *wal.WAL
 	sstReaders        []*sstable.Reader
 	dataDir           string
-	isFlushing        bool
+	flushChan         chan struct{}
+	wg                sync.WaitGroup
+	closed            bool
 }
 
 type sstableInfo struct {
@@ -48,7 +50,11 @@ func Open(dataDir string) (*StrataGo, error) {
 		// Found an abandoned log, recovering it into the memory
 		tempWAL, err := wal.NewWAL(flushingPath)
 		if err == nil {
-			restored, _ := tempWAL.Recover()
+			restored, err := tempWAL.Recover()
+			if err != nil {
+				tempWAL.Close()
+				fmt.Printf("Warning: partial recovery from flushing WAL: %v\n", err)
+			}
 			for k, v := range restored {
 				mem.Put([]byte(k), v)
 
@@ -99,15 +105,29 @@ func Open(dataDir string) (*StrataGo, error) {
 		}
 	}
 
-	return &StrataGo{
+	db := &StrataGo{
 		activeMemtable: mem,
 		wal:            walLog,
 		sstReaders:     readers,
 		dataDir:        dataDir,
-	}, nil
+		flushChan:      make(chan struct{}, 1),
+		closed:         false,
+	}
+
+	db.wg.Add(1)
+	go db.flushWorker()
+
+	return db, nil
 }
 
 func (db *StrataGo) Put(key, value []byte) error {
+
+	db.mu.Lock()
+	if db.closed {
+		db.mu.Unlock()
+		return fmt.Errorf("database is closed")
+	}
+	db.mu.Unlock()
 
 	if err := db.wal.WriteEntry(key, value); err != nil {
 		return err
@@ -118,8 +138,14 @@ func (db *StrataGo) Put(key, value []byte) error {
 
 	needsFlush := db.activeMemtable.SizeBytes >= DefaultMemtableThreshold
 
-	if needsFlush && !db.isFlushing {
-		go db.Flush()
+	if needsFlush {
+		select {
+		case db.flushChan <- struct{}{}:
+			// Signal to flush sent
+		default:
+			// Channel is full (Flush already pending/running)
+			// Ignoring request
+		}
 	}
 	db.mu.Unlock()
 
@@ -160,6 +186,13 @@ func (db *StrataGo) Get(key []byte) ([]byte, bool) {
 // Delete marks a key as deleted by inserting a tombstone
 func (db *StrataGo) Delete(key []byte) error {
 
+	db.mu.Lock()
+	if db.closed {
+		db.mu.Unlock()
+		return fmt.Errorf("database is closed")
+	}
+	db.mu.Unlock()
+
 	// Writing the deletion to the WAL with value nil
 	if err := db.wal.WriteEntry(key, nil); err != nil {
 		return err
@@ -169,8 +202,11 @@ func (db *StrataGo) Delete(key []byte) error {
 	db.activeMemtable.Put(key, nil)
 
 	needsFlush := db.activeMemtable.SizeBytes >= DefaultMemtableThreshold
-	if needsFlush && !db.isFlushing {
-		go db.Flush()
+	if needsFlush {
+		select {
+		case db.flushChan <- struct{}{}:
+		default:
+		}
 	}
 	db.mu.Unlock()
 
@@ -178,6 +214,21 @@ func (db *StrataGo) Delete(key []byte) error {
 }
 
 func (db *StrataGo) Close() error {
+	db.mu.Lock()
+	if db.closed {
+		db.mu.Unlock()
+		return nil
+	}
+	db.closed = true
+	db.mu.Unlock()
+
+	if err := db.Flush(); err != nil {
+		return fmt.Errorf("final flush on close failed: %w", err)
+	}
+
+	close(db.flushChan)
+	db.wg.Wait() // Wait for any in-progress flush to finish
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -190,6 +241,15 @@ func (db *StrataGo) Close() error {
 
 // Purge closes the database, deletes all data files, and restarts the engine.
 func (db *StrataGo) Purge() error {
+	db.mu.Lock()
+	if !db.closed {
+		// Drain and close to stop worker cleanly
+		close(db.flushChan)
+	}
+	db.mu.Unlock()
+
+	db.wg.Wait() // Wait for worker to die
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -225,8 +285,21 @@ func (db *StrataGo) Purge() error {
 	}
 	db.wal = newWal
 
-	// Reset flush state
-	db.isFlushing = false
+	// Restarting worker
+	db.flushChan = make(chan struct{}, 1)
+	db.closed = false
+	db.wg.Add(1)
+	go db.flushWorker()
 
 	return nil
+}
+
+func (db *StrataGo) flushWorker() {
+	defer db.wg.Done()
+
+	for range db.flushChan {
+		if err := db.Flush(); err != nil {
+			fmt.Printf("Background flush failed: %v\n", err)
+		}
+	}
 }
