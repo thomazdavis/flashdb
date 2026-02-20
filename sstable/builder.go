@@ -51,7 +51,7 @@ func (b *Builder) Flush(skiplist *memtable.SkipList) error {
 		val := iter.Value()
 		startOffset := b.bytesWritten
 
-		if startOffset-b.lastIndexPos >= IndexInterval {
+		if startOffset == 0 || startOffset-b.lastIndexPos >= IndexInterval {
 			keyCopy := make([]byte, len(key))
 			copy(keyCopy, key)
 

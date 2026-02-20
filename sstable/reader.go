@@ -85,14 +85,7 @@ func (r *Reader) Get(searchKey []byte) ([]byte, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	startOffset := int64(0)
-	for _, entry := range r.index {
-		if bytes.Compare(entry.Key, searchKey) <= 0 {
-			startOffset = entry.Offset
-		} else {
-			break
-		}
-	}
+	startOffset := r.findIndexEntry(searchKey)
 
 	_, err := r.file.Seek(startOffset, 0)
 	if err != nil {
@@ -197,4 +190,27 @@ func (r *Reader) ReadAll() (map[string][]byte, error) {
 		currentPos += int64(8 + keySize + valSize)
 	}
 	return data, nil
+}
+
+func (r *Reader) findIndexEntry(searchKey []byte) int64 {
+	if len(r.index) == 0 {
+		return 0
+	}
+
+	// Binary search
+	left, right := 0, len(r.index)-1
+	result := int64(0)
+
+	for left <= right {
+		mid := (left + right) / 2
+		cmp := bytes.Compare(r.index[mid].Key, searchKey)
+
+		if cmp <= 0 {
+			result = r.index[mid].Offset
+			left = mid + 1
+		} else {
+			right = mid - 1
+		}
+	}
+	return result
 }
