@@ -101,6 +101,10 @@ func (db *StrataGo) RunCompaction() error {
 		os.Remove(oldPath)
 	}
 
+	for _, it := range iters {
+		it.Close()
+	}
+
 	fmt.Println("Compaction complete!")
 	return nil
 }

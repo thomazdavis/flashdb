@@ -278,9 +278,11 @@ func (db *StrataGo) Purge() error {
 
 	// Restarting worker
 	db.flushChan = make(chan struct{}, 1)
+	db.closeChan = make(chan struct{})
 	db.closed = false
-	db.wg.Add(1)
+	db.wg.Add(2)
 	go db.flushWorker()
+	go db.compactionWorker()
 
 	return nil
 }
